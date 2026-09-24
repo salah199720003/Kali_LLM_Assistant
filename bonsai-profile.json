@@ -1,0 +1,21 @@
+{
+  "alias": "bonsai-2-27b",
+  "repository": "prism-ml/Ternary-Bonsai-2-27B-gguf",
+  "revision": "8b7157531df3859ce2a415c60754e9152554e25d",
+  "filename": "Ternary-Bonsai-2-27B-PQ2_0.gguf",
+  "model_sha256": "3907dc1658db1f78a9826bf8d5bcb8dc65db0d466388937af57f2294fae62ec1",
+  "runtime_release": "prism-b10735-842b188",
+  "runtime_assets": [
+    {
+      "filename": "llama-prism-b10735-842b188-bin-win-cuda-13.3-x64.zip",
+      "sha256": "80e950d34b03a5fc011a5d5aa74a07c7aef58dca0218b6b62ea8fc3177ff1655"
+    },
+    {
+      "filename": "cudart-llama-bin-win-cuda-13.3-x64.zip",
+      "sha256": "1462a050eb4c684921ba51dcc4cc488a036674c3e73e9945ee705b854808d03e"
+    }
+  ],
+  "context_size": 102400,
+  "kv_cache_type": "q8_0",
+  "reasoning_effort": "medium"
+}
