@@ -1,24 +1,24 @@
 param(
     [string]$ServerPath = 'C:\Models\K2\llama-k2\build-vulkan\bin\llama-server.exe',
-    [string]$ModelPath = 'C:\Models\K2\K2-Horizon-7B-Q8_0.gguf',
+    [Parameter(Mandatory = $true)][string]$ModelPath,
     [string]$RuntimePath = 'C:\Models\K2\toolchain\msys64\ucrt64\bin',
-    [int]$Port = 8080,
+    [string]$Alias = 'agent-14b',
+    [int]$Port = 8081,
     [int]$ContextSize = 102400,
     [string]$KvCacheType = 'q4_0',
-    [switch]$GpuKvCache
+    [switch]$GpuKvCache,
+    [ValidateSet('auto', 'on', 'off')][string]$Reasoning = 'auto',
+    [string]$ExtraArgs = ''
 )
 
 $ErrorActionPreference = 'Stop'
-if ($GpuKvCache -and -not $PSBoundParameters.ContainsKey('ContextSize')) {
-    $ContextSize = 32768
-}
 $modelUrl = "http://127.0.0.1:$Port/v1/models"
 $propsUrl = "http://127.0.0.1:$Port/props"
 $logDir = Split-Path -Parent $ModelPath
 $stdoutLog = Join-Path $logDir 'server-out.log'
 $stderrLog = Join-Path $logDir 'server-err.log'
 
-function Get-K2ServerModel {
+function Get-ServerModels {
     try {
         $response = Invoke-RestMethod -Uri $modelUrl -TimeoutSec 2
         return @($response.data | ForEach-Object { $_.id })
@@ -27,31 +27,19 @@ function Get-K2ServerModel {
     }
 }
 
-$existingModels = @(Get-K2ServerModel)
-if ($existingModels.Count -gt 0) {
-    if ($existingModels -contains 'k2-horizon') {
-        $existingProps = Invoke-RestMethod -Uri $propsUrl -TimeoutSec 5
-        $activeContext = $existingProps.default_generation_settings.n_ctx
-        if ($activeContext -ne $ContextSize) {
-            throw "K2 is already running with context $activeContext; requested $ContextSize. Stop the current llama-server process and run this launcher again to change it."
-        }
-        if ($GpuKvCache) {
-            throw "K2 is already running. Stop the current llama-server process before switching to the GPU KV cache mode."
-        }
-        Write-Host "K2 Horizon is already running with $activeContext context at http://127.0.0.1:$Port/v1"
+$existing = @(Get-ServerModels)
+if ($existing.Count -gt 0) {
+    if ($existing -contains $Alias) {
+        # Reasoning sets only the startup default of a new server. Agent and
+        # browser requests each select their own thinking mode.
+        Write-Host "Server already running with $Alias at http://127.0.0.1:$Port/v1"
         exit 0
     }
-    throw "Port $Port already serves another model: $($existingModels -join ', ')"
+    throw "Port $Port already serves: $($existing -join ', '). Stop it or choose another port."
 }
 
-if ($ContextSize -lt 1024 -or $ContextSize -gt 524288) {
-    throw 'ContextSize must be between 1024 and the model maximum of 524288.'
-}
-
-foreach ($item in @($ServerPath, $ModelPath, $RuntimePath)) {
-    if (-not (Test-Path -LiteralPath $item)) {
-        throw "Required K2 file or directory is missing: $item"
-    }
+if (-not (Test-Path -LiteralPath $ModelPath)) {
+    throw "Model file missing: $ModelPath"
 }
 
 $originalPath = $env:Path
@@ -69,9 +57,20 @@ try {
     $serverArguments += @(
         '--flash-attn', 'on',
         '--cache-type-k', $KvCacheType, '--cache-type-v', $KvCacheType,
-        '--jinja', '--alias', 'k2-horizon',
+        '--jinja', '--alias', $Alias,
+        '--reasoning', $Reasoning,
         '--host', '127.0.0.1', '--port', "$Port"
     )
+    # Browser assets only; the terminal agent still selects effort per request.
+    $qwenBrowserPath = Join-Path $PSScriptRoot 'runtime\qwen-webui'
+    if ($ModelPath -match 'Qwen3[.]8-27B' -and
+        (Test-Path -LiteralPath (Join-Path $qwenBrowserPath 'effort-ui.json')) -and
+        (Test-Path -LiteralPath (Join-Path $qwenBrowserPath 'index.html'))) {
+        $serverArguments += @('--path', ('"{0}"' -f $qwenBrowserPath))
+    }
+    if ($ExtraArgs) {
+        $serverArguments += ($ExtraArgs -split '\s+')
+    }
     $server = Start-Process -FilePath $ServerPath -ArgumentList $serverArguments `
         -WorkingDirectory (Split-Path -Parent $ServerPath) -WindowStyle Hidden `
         -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog -PassThru
@@ -79,11 +78,10 @@ try {
     $env:Path = $originalPath
 }
 
-for ($attempt = 0; $attempt -lt 60; $attempt++) {
+for ($attempt = 0; $attempt -lt 90; $attempt++) {
     Start-Sleep -Seconds 2
-    if (@(Get-K2ServerModel) -contains 'k2-horizon') {
-        $kvLocation = if ($GpuKvCache) { 'GPU' } else { 'system RAM' }
-        Write-Host "K2 Horizon is ready with $ContextSize context and $kvLocation KV cache at http://127.0.0.1:$Port/v1 (PID $($server.Id))."
+    if (@(Get-ServerModels) -contains $Alias) {
+        Write-Host "$Alias ready with $ContextSize context at http://127.0.0.1:$Port/v1 (PID $($server.Id))."
         Write-Host "Server logs: $stdoutLog and $stderrLog"
         exit 0
     }
@@ -96,4 +94,4 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
     }
 }
 
-throw "K2 did not become ready within 120 seconds. Check $stderrLog"
+throw "Server did not become ready within 180 seconds. Check $stderrLog"
