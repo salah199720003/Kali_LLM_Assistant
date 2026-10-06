@@ -7,4 +7,11 @@ runtime/
 reports/
 dist/
 archive/
+lab_notes.sqlite3
+lab_notes.sqlite3-journal
 *.lnk
+*.log
+HANDOFF.md
+lab_notes.md
+experiments/zcode_*.py
+experiments/q4ks-*-results.json
